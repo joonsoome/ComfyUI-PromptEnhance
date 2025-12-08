@@ -94,6 +94,14 @@ The default template is designed to transform user prompts into detailed, visual
 3. Configure your API endpoint and key
 4. Connect the `enhanced_prompt` output to your CLIP Text Encode or other text processing nodes
 
+## Example Workflows
+
+Ready-to-use example workflows are available in the `examples/` directory:
+
+- **[SDXL Prompt Enhance Workflow](examples/sdxl_prompt_enhance_workflow.json)**: A complete SDXL workflow demonstrating prompt enhancement with visual preview of enhanced prompts. Perfect for learning how to integrate Prompt Enhance nodes into your workflows.
+
+See the [examples/README.md](examples/README.md) for detailed instructions on using the example workflows.
+
 ## License
 
 MIT License
