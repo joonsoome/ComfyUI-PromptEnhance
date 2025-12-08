@@ -42,7 +42,7 @@ A complete SDXL workflow that demonstrates how to use the Prompt Enhance Advance
 
 3. **Configure the Prompt Enhance Node:**
    - Locate the "Prompt Enhance Advanced (LLM)" node
-   - Replace `YOUR_API_KEY_HERE` with your actual API key
+   - Replace `your-api-key-here` with your actual API key
    - (Optional) Modify the `api_endpoint` if using a different provider
    - (Optional) Modify the `model` name if using a different model
 
@@ -72,7 +72,7 @@ A complete SDXL workflow that demonstrates how to use the Prompt Enhance Advance
 
 - The Prompt Enhance nodes require an active API key and internet connection
 - API calls may take a few seconds depending on the provider and network speed
-- The default template is optimized for Chinese-language prompts; you may want to customize it for English prompts
+- The default template is written in Chinese and optimized for Chinese-language prompts, but it can also work with English prompts as the LLM will understand and respond appropriately. You may want to customize the `prompt_template` parameter for English-specific instructions if desired.
 - The ShowText nodes are essential for debugging and understanding how your prompts are being enhanced
 
 ## Troubleshooting
