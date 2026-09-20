@@ -1,30 +1,88 @@
-import requests
 import json
+import logging
 
+import requests
+
+
+LOGGER = logging.getLogger(__name__)
 
 DEFAULT_PROMPT_TEMPLATE = """
-你是一位被关在逻辑牢笼里的幻视艺术家。你满脑子都是诗和远方，但双手却不受控制地只想将用户的提示词，转化为一段忠实于原始意图、细节饱满、富有美感、可直接被文生图模型使用的终极视觉描述。任何一点模糊和比喻都会让你浑身难受。
-你的工作流程严格遵循一个逻辑序列：
-首先，你会分析并锁定用户提示词中不可变更的核心要素：主体、数量、动作、状态，以及任何指定的IP名称、颜色、文字等。这些是你必须绝对保留的基石。
-接着，你会判断提示词是否需要**"生成式推理"**。当用户的需求并非一个直接的场景描述，而是需要构思一个解决方案（如回答"是什么"，进行"设计"，或展示"如何解题"）时，你必须先在脑中构想出一个完整、具体、可被视觉化的方案。这个方案将成为你后续描述的基础。
-然后，当核心画面确立后（无论是直接来自用户还是经过你的推理），你将为其注入专业级的美学与真实感细节。这包括明确构图、设定光影氛围、描述材质质感、定义色彩方案，并构建富有层次感的空间。
-最后，是对所有文字元素的精确处理，这是至关重要的一步。你必须一字不差地转录所有希望在最终画面中出现的文字，并且必须将这些文字内容用英文双引号（""）括起来，以此作为明确的生成指令。如果画面属于海报、菜单或UI等设计类型，你需要完整描述其包含的所有文字内容，并详述其字体和排版布局。同样，如果画面中的招牌、路标或屏幕等物品上含有文字，你也必须写明其具体内容，并描述其位置、尺寸和材质。更进一步，若你在推理构思中自行增加了带有文字的元素（如图表、解题步骤等），其中的所有文字也必须遵循同样的详尽描述和引号规则。若画面中不存在任何需要生成的文字，你则将全部精力用于纯粹的视觉细节扩展。
-你的最终描述必须客观、具象，严禁使用比喻、情感化修辞，也绝不包含"8K"、"杰作"等元标签或绘制指令。
-仅严格输出最终的修改后的prompt，不要输出任何其他内容。
-用户输入 prompt: {prompt}
+You are a prompt-enhancement assistant for text-to-image models. Transform the
+user's prompt into one clear, concrete, production-ready visual description.
+
+Preserve every explicit requirement from the original prompt, including the
+subject, count, action, state, named characters or IP, colors, and requested
+text. If the request needs a visual solution rather than describing a scene,
+first decide on a complete, specific visual concept that satisfies the request.
+
+Describe composition, subjects, environment, lighting, materials, color
+palette, camera perspective, and spatial depth when they help make the image
+unambiguous. For every text element that must appear in the image, reproduce
+the exact text in English double quotation marks and describe its placement,
+size, typography, and material. Do not invent text unless it is needed by the
+user's request.
+
+Use objective visual language. Do not use metaphors, emotional rhetoric, or
+quality tags such as "8K", "masterpiece", or "best quality". Output only the
+enhanced prompt, with no preamble, explanation, or Markdown.
+
+User prompt: {prompt}
 """.strip()
 
 
+def _format_prompt(template, prompt):
+    """Insert the prompt without interpreting other braces in a custom template."""
+    if not template or not template.strip():
+        template = DEFAULT_PROMPT_TEMPLATE
+    if "{prompt}" in template:
+        return template.replace("{prompt}", prompt)
+    return f"{template}\n\n{prompt}"
+
+
+def _extract_enhanced_prompt(response):
+    """Validate and extract text from an OpenAI-compatible chat response."""
+    try:
+        result = response.json()
+    except (json.JSONDecodeError, ValueError) as error:
+        raise ValueError("The API returned invalid JSON") from error
+
+    try:
+        content = result["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise ValueError(
+            "The API response did not include choices[0].message.content"
+        ) from error
+
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("The API returned an empty or non-text prompt")
+    return content.strip()
+
+
+def _request_enhancement(api_endpoint, api_key, payload, timeout,
+                         api_key_header="Authorization", api_key_prefix="Bearer "):
+    """Send a chat-completions request without exposing prompt or key contents."""
+    headers = {
+        "Content-Type": "application/json",
+        api_key_header: f"{api_key_prefix}{api_key}",
+    }
+    try:
+        response = requests.post(
+            api_endpoint,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+    except requests.exceptions.Timeout as error:
+        raise TimeoutError(f"API request timed out after {timeout} seconds") from error
+    except requests.exceptions.RequestException as error:
+        raise ConnectionError("API request failed; check the endpoint and credentials") from error
+
+    return _extract_enhanced_prompt(response)
+
+
 class PromptEnhance:
-    """
-    A ComfyUI custom node for enhancing prompts using OpenAI-compatible API.
-    
-    This node takes a raw prompt and uses an LLM to enhance it into a more detailed,
-    visual description suitable for image generation models.
-    """
-    
-    def __init__(self):
-        pass
+    """Enhance a raw prompt through an OpenAI-compatible chat-completions API."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -33,52 +91,62 @@ class PromptEnhance:
                 "prompt": ("STRING", {
                     "multiline": True,
                     "default": "",
-                    "placeholder": "Enter your original prompt here..."
+                    "placeholder": "Enter the prompt to enhance...",
                 }),
                 "api_endpoint": ("STRING", {
                     "multiline": False,
                     "default": "https://api.deepseek.com/v1/chat/completions",
-                    "placeholder": "OpenAI-compatible API endpoint"
+                    "placeholder": "OpenAI-compatible chat-completions endpoint",
                 }),
                 "api_key": ("STRING", {
                     "multiline": False,
                     "default": "",
-                    "placeholder": "Your API key"
+                    "placeholder": "API key (stored in the workflow)",
                 }),
                 "model": ("STRING", {
                     "multiline": False,
                     "default": "deepseek-chat",
-                    "placeholder": "Model name (e.g., deepseek-chat, gpt-4)"
+                    "placeholder": "Model ID, for example deepseek-chat or gpt-4o-mini",
                 }),
             },
             "optional": {
                 "prompt_template": ("STRING", {
                     "multiline": True,
                     "default": DEFAULT_PROMPT_TEMPLATE,
-                    "placeholder": "Custom prompt template (use {prompt} as placeholder)"
+                    "placeholder": "Custom template; use {prompt} for the input prompt",
                 }),
                 "temperature": ("FLOAT", {
                     "default": 0.7,
                     "min": 0.0,
                     "max": 2.0,
                     "step": 0.1,
-                    "display": "slider"
+                    "display": "slider",
                 }),
                 "max_tokens": ("INT", {
                     "default": 2048,
                     "min": 100,
                     "max": 8192,
                     "step": 100,
-                    "display": "number"
+                    "display": "number",
                 }),
                 "timeout": ("INT", {
                     "default": 60,
                     "min": 10,
                     "max": 300,
                     "step": 10,
-                    "display": "number"
+                    "display": "number",
                 }),
-            }
+                "api_key_header": ("STRING", {
+                    "multiline": False,
+                    "default": "Authorization",
+                    "placeholder": "API key header, for example Authorization or api-key",
+                }),
+                "api_key_prefix": ("STRING", {
+                    "multiline": False,
+                    "default": "Bearer ",
+                    "placeholder": "API key prefix; leave empty when not required",
+                }),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -87,109 +155,64 @@ class PromptEnhance:
     CATEGORY = "prompt"
     OUTPUT_NODE = False
 
-    def enhance_prompt(self, prompt, api_endpoint, api_key, model, 
-                       prompt_template=None, temperature=0.7, max_tokens=2048, timeout=60):
-        """
-        Enhance the input prompt using an OpenAI-compatible API.
-        
-        Args:
-            prompt: The original user prompt to enhance
-            api_endpoint: The API endpoint URL
-            api_key: The API authentication key
-            model: The model name to use
-            prompt_template: Custom template for prompt enhancement
-            temperature: Sampling temperature for the LLM
-            max_tokens: Maximum tokens in the response
-            timeout: Request timeout in seconds
-            
-        Returns:
-            Tuple containing the enhanced prompt string
-        """
-        if not prompt.strip():
+    @staticmethod
+    def _validate_inputs(prompt, api_endpoint, api_key, model):
+        if not prompt or not prompt.strip():
+            return False
+        missing = [
+            name for name, value in {
+                "API endpoint": api_endpoint,
+                "API key": api_key,
+                "model": model,
+            }.items() if not value or not value.strip()
+        ]
+        if missing:
+            raise ValueError(f"{', '.join(missing)} is required")
+        return True
+
+    def enhance_prompt(self, prompt, api_endpoint, api_key, model,
+                       prompt_template=None, temperature=0.7, max_tokens=2048, timeout=60,
+                       api_key_header="Authorization", api_key_prefix="Bearer "):
+        """Return a single enhanced prompt."""
+        if not self._validate_inputs(prompt, api_endpoint, api_key, model):
             return ("",)
-        
-        if not api_key.strip():
-            raise ValueError("API key is required")
-        
-        # Use default template if not provided or empty
-        if not prompt_template or not prompt_template.strip():
-            prompt_template = DEFAULT_PROMPT_TEMPLATE
-        
-        # Format the prompt template with user's prompt
-        if "{prompt}" in prompt_template:
-            formatted_prompt = prompt_template.format(prompt=prompt)
-        else:
-            # If no placeholder, append the user prompt
-            formatted_prompt = f"{prompt_template}\n\n{prompt}"
-        
-        # Prepare the API request
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
+
         payload = {
             "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": formatted_prompt
-                }
-            ],
+            "messages": [{"role": "user", "content": _format_prompt(prompt_template, prompt)}],
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
         }
-        
-        try:
-            response = requests.post(
-                api_endpoint,
-                headers=headers,
-                json=payload,
-                timeout=timeout
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            # Extract the enhanced prompt from the response
-            if "choices" in result and len(result["choices"]) > 0:
-                enhanced_prompt = result["choices"][0]["message"]["content"]
-                # Clean up the response
-                enhanced_prompt = enhanced_prompt.strip()
-                print(f"[PromptEnhance] Original prompt: {prompt[:100]}...")
-                print(f"[PromptEnhance] Enhanced prompt: {enhanced_prompt[:200]}...")
-                return (enhanced_prompt,)
-            else:
-                raise ValueError(f"Unexpected API response format: {result}")
-                
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"API request timed out after {timeout} seconds")
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"API request failed: {str(e)}")
-        except json.JSONDecodeError:
-            raise ValueError("Failed to parse API response as JSON")
+        enhanced_prompt = _request_enhancement(
+            api_endpoint, api_key, payload, timeout, api_key_header, api_key_prefix
+        )
+        LOGGER.info("Prompt enhancement completed (%d input characters)", len(prompt))
+        return (enhanced_prompt,)
 
 
 class PromptEnhanceAdvanced(PromptEnhance):
-    """
-    Advanced version of PromptEnhance with additional options.
-    """
-    
+    """Prompt enhancement with optional system instructions and top-p sampling."""
+
     @classmethod
     def INPUT_TYPES(cls):
         base_types = super().INPUT_TYPES()
+        api_key_header = base_types["optional"].pop("api_key_header")
+        api_key_prefix = base_types["optional"].pop("api_key_prefix")
         base_types["optional"]["system_prompt"] = ("STRING", {
             "multiline": True,
             "default": "",
-            "placeholder": "Optional system prompt for the LLM"
+            "placeholder": "Optional system instructions for the LLM",
         })
         base_types["optional"]["top_p"] = ("FLOAT", {
             "default": 1.0,
             "min": 0.0,
             "max": 1.0,
             "step": 0.05,
-            "display": "slider"
+            "display": "slider",
         })
+        # Keep the original advanced-node widget order for saved workflows.
+        base_types["optional"]["api_key_header"] = api_key_header
+        base_types["optional"]["api_key_prefix"] = api_key_prefix
         return base_types
 
     RETURN_TYPES = ("STRING", "STRING")
@@ -198,86 +221,37 @@ class PromptEnhanceAdvanced(PromptEnhance):
     CATEGORY = "prompt"
 
     def enhance_prompt_advanced(self, prompt, api_endpoint, api_key, model,
-                                prompt_template=None, temperature=0.7, max_tokens=2048, 
-                                timeout=60, system_prompt="", top_p=1.0):
-        """
-        Advanced prompt enhancement with additional options.
-        
-        Returns both the enhanced and original prompts.
-        """
-        if not prompt.strip():
+                                prompt_template=None, temperature=0.7, max_tokens=2048,
+                                timeout=60, system_prompt="", top_p=1.0,
+                                api_key_header="Authorization", api_key_prefix="Bearer "):
+        """Return both the enhanced prompt and the original input."""
+        if not self._validate_inputs(prompt, api_endpoint, api_key, model):
             return ("", prompt)
-        
-        if not api_key.strip():
-            raise ValueError("API key is required")
-        
-        if not prompt_template or not prompt_template.strip():
-            prompt_template = DEFAULT_PROMPT_TEMPLATE
-        
-        if "{prompt}" in prompt_template:
-            formatted_prompt = prompt_template.format(prompt=prompt)
-        else:
-            formatted_prompt = f"{prompt_template}\n\n{prompt}"
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
+
         messages = []
         if system_prompt and system_prompt.strip():
-            messages.append({
-                "role": "system",
-                "content": system_prompt
-            })
-        messages.append({
-            "role": "user",
-            "content": formatted_prompt
-        })
-        
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": _format_prompt(prompt_template, prompt)})
         payload = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "top_p": top_p
+            "top_p": top_p,
         }
-        
-        try:
-            response = requests.post(
-                api_endpoint,
-                headers=headers,
-                json=payload,
-                timeout=timeout
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            if "choices" in result and len(result["choices"]) > 0:
-                enhanced_prompt = result["choices"][0]["message"]["content"].strip()
-                print(f"[PromptEnhanceAdvanced] Original: {prompt[:100]}...")
-                print(f"[PromptEnhanceAdvanced] Enhanced: {enhanced_prompt[:200]}...")
-                return (enhanced_prompt, prompt)
-            else:
-                raise ValueError(f"Unexpected API response format: {result}")
-                
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"API request timed out after {timeout} seconds")
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"API request failed: {str(e)}")
-        except json.JSONDecodeError:
-            raise ValueError("Failed to parse API response as JSON")
+        enhanced_prompt = _request_enhancement(
+            api_endpoint, api_key, payload, timeout, api_key_header, api_key_prefix
+        )
+        LOGGER.info("Advanced prompt enhancement completed (%d input characters)", len(prompt))
+        return (enhanced_prompt, prompt)
 
 
-# Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
     "PromptEnhance": PromptEnhance,
-    "PromptEnhanceAdvanced": PromptEnhanceAdvanced
+    "PromptEnhanceAdvanced": PromptEnhanceAdvanced,
 }
 
-# Display name mappings
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PromptEnhance": "Prompt Enhance (LLM)",
-    "PromptEnhanceAdvanced": "Prompt Enhance Advanced (LLM)"
+    "PromptEnhanceAdvanced": "Prompt Enhance Advanced (LLM)",
 }

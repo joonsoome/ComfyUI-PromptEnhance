@@ -72,7 +72,7 @@ A complete SDXL workflow that demonstrates how to use the Prompt Enhance Advance
 
 - The Prompt Enhance nodes require an active API key and internet connection
 - API calls may take a few seconds depending on the provider and network speed
-- The default template is written in Chinese and optimized for Chinese-language prompts, but it can also work with English prompts as the LLM will understand and respond appropriately. You may want to customize the `prompt_template` parameter for English-specific instructions if desired.
+- The default template is written in English. You can replace it with a custom template; include `{prompt}` where the original input should be inserted.
 - The ShowText nodes are essential for debugging and understanding how your prompts are being enhanced
 
 ## Troubleshooting

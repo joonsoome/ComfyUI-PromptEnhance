@@ -22,9 +22,9 @@ A ComfyUI custom node for enhancing prompts using OpenAI-compatible APIs (like D
    # or simply copy the folder
    ```
 
-3. Install dependencies (if not already installed):
+3. Install dependencies:
    ```bash
-   pip install requests
+   pip install -r requirements.txt
    ```
 
 4. Restart ComfyUI
@@ -44,6 +44,8 @@ Basic prompt enhancement node.
 - `temperature` (optional): Sampling temperature (0.0-2.0, default: 0.7)
 - `max_tokens` (optional): Maximum response tokens (100-8192, default: 2048)
 - `timeout` (optional): Request timeout in seconds (10-300, default: 60)
+- `api_key_header` (optional): API key header name (default: `Authorization`)
+- `api_key_prefix` (optional): Prefix placed before the API key (default: `Bearer `)
 
 **Output:**
 - `enhanced_prompt`: The enhanced prompt string
@@ -79,6 +81,8 @@ Model: `gpt-4`, `gpt-3.5-turbo`, etc.
 https://<your-resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-02-15-preview
 ```
 
+Set `api_key_header` to `api-key` and clear `api_key_prefix`.
+
 ## Default Prompt Template
 
 The default template is designed to transform user prompts into detailed, visual descriptions that are:
@@ -86,6 +90,35 @@ The default template is designed to transform user prompts into detailed, visual
 - Rich in visual details
 - Free of metaphors and emotional rhetoric
 - Directly usable by text-to-image models
+
+## Reliability and Security Improvements
+
+The node includes the following safeguards:
+
+- The default enhancement template, UI placeholders, and documentation use English.
+- Custom templates replace only the `{prompt}` token, so unrelated literal braces
+  (for example, JSON examples) do not cause Python formatting errors.
+- The API response is validated before its text is used. Empty, malformed, and
+  unsupported response shapes produce a clear error.
+- Console logging records only the input length; it does not print prompts,
+  enhanced prompts, or API keys.
+- Required API endpoint and model fields are validated before a request is sent.
+- Runtime dependencies are declared in `requirements.txt` for repeatable setup.
+
+### API Key Safety
+
+ComfyUI workflow files can contain widget values. Do not save a workflow after
+entering a production API key, and never commit a workflow that contains one.
+Use a restricted or temporary key for workflow smoke tests.
+
+## Development
+
+Run the local regression checks before submitting a change:
+
+```bash
+python -m unittest discover -s tests -v
+python -m py_compile __init__.py prompt_enhance.py
+```
 
 ## Example Usage
 
